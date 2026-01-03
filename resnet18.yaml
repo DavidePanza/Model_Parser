@@ -1,0 +1,30 @@
+# resnet18.yaml
+model_name: ResNet18
+input_shape: [3, 224, 224]
+
+backbone:
+  # Stem
+  - [-1, 1, Conv, [64, 7, 2, 3]]
+  - [-1, 1, BatchNorm, [64]]
+  - [-1, 1, ReLU, []]
+  - [-1, 1, MaxPool, [3, 2, 1]]
+  
+  # Stage 1: 2 blocks, 64 channels
+  - [-1, 2, ResBlock, [64, 64, 1]]
+  
+  # Stage 2: 2 blocks, 128 channels, downsample
+  - [-1, 1, ResBlock, [64, 128, 2]]
+  - [-1, 1, ResBlock, [128, 128, 1]]
+  
+  # Stage 3: 2 blocks, 256 channels, downsample
+  - [-1, 1, ResBlock, [128, 256, 2]]
+  - [-1, 1, ResBlock, [256, 256, 1]]
+  
+  # Stage 4: 2 blocks, 512 channels, downsample
+  - [-1, 1, ResBlock, [256, 512, 2]]
+  - [-1, 1, ResBlock, [512, 512, 1]]
+
+head:
+  - [-1, 1, AdaptiveAvgPool, [1, 1]]
+  - [-1, 1, Flatten, []]
+  - [-1, 1, Linear, [num_classes]]
