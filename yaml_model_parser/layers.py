@@ -310,9 +310,9 @@ class Flatten(nn.Module):
         return self.flatten(x)
 
 
-class ResidualBlock(nn.Module):
+class ResBlock(nn.Module):
     """Simple residual block for ResNet-style architectures."""
-    
+
     def __init__(self, c_in: int, c_out: int, stride: int = 1):
         super().__init__()
         self.conv1 = Conv(c_in, c_out, kernel=3, stride=stride, padding=1)
@@ -381,7 +381,7 @@ LAYER_REGISTRY = {
     'Flatten': Flatten,
     
     # Additional blocks
-    'ResBlock': ResidualBlock,
+    'ResBlock': ResBlock,
     'SEBlock': SEBlock,
 }
 
