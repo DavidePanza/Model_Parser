@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import yaml
 from typing import List, Tuple, Any, Union
-from layers import get_layer, LAYER_REGISTRY
+from .layers import get_layer, LAYER_REGISTRY
 
 
 class ModelParser:
