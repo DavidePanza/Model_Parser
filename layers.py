@@ -201,23 +201,165 @@ class Upsample(nn.Module):
         return self.upsample(x)
 
 
+# ============================================================================
+# Standard PyTorch Layer Wrappers
+# ============================================================================
+
+class Linear(nn.Module):
+    """Linear layer wrapper that tracks output features."""
+    
+    def __init__(self, c_in: int, c_out: int):
+        super().__init__()
+        self.linear = nn.Linear(c_in, c_out)
+        self.out_features = c_out
+    
+    def forward(self, x):
+        return self.linear(x)
+
+
+class BatchNorm(nn.Module):
+    """BatchNorm2d wrapper."""
+    
+    def __init__(self, num_features: int):
+        super().__init__()
+        self.bn = nn.BatchNorm2d(num_features)
+    
+    def forward(self, x):
+        return self.bn(x)
+
+
+class ReLU(nn.Module):
+    """ReLU activation."""
+    
+    def __init__(self):
+        super().__init__()
+        self.relu = nn.ReLU(inplace=True)
+    
+    def forward(self, x):
+        return self.relu(x)
+
+
+class Sigmoid(nn.Module):
+    """Sigmoid activation."""
+    
+    def __init__(self):
+        super().__init__()
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x):
+        return self.sigmoid(x)
+
+
+class MaxPool(nn.Module):
+    """MaxPool2d wrapper."""
+    
+    def __init__(self, kernel_size: int, stride: int = None, padding: int = 0):
+        super().__init__()
+        stride = stride or kernel_size
+        self.pool = nn.MaxPool2d(kernel_size, stride, padding)
+    
+    def forward(self, x):
+        return self.pool(x)
+
+
+class AvgPool(nn.Module):
+    """AvgPool2d wrapper."""
+    
+    def __init__(self, kernel_size: int, stride: int = None, padding: int = 0):
+        super().__init__()
+        stride = stride or kernel_size
+        self.pool = nn.AvgPool2d(kernel_size, stride, padding)
+    
+    def forward(self, x):
+        return self.pool(x)
+
+
+class AdaptiveAvgPool(nn.Module):
+    """AdaptiveAvgPool2d wrapper."""
+    
+    def __init__(self, output_size):
+        super().__init__()
+        # Handle both single int and tuple
+        if isinstance(output_size, int):
+            output_size = (output_size, output_size)
+        self.pool = nn.AdaptiveAvgPool2d(output_size)
+    
+    def forward(self, x):
+        return self.pool(x)
+
+
+class Dropout(nn.Module):
+    """Dropout wrapper."""
+    
+    def __init__(self, p: float = 0.5):
+        super().__init__()
+        self.dropout = nn.Dropout(p)
+    
+    def forward(self, x):
+        return self.dropout(x)
+
+
+class Flatten(nn.Module):
+    """Flatten layer."""
+    
+    def __init__(self):
+        super().__init__()
+        self.flatten = nn.Flatten()
+    
+    def forward(self, x):
+        return self.flatten(x)
+
+
+class ResidualBlock(nn.Module):
+    """Simple residual block for ResNet-style architectures."""
+    
+    def __init__(self, c_in: int, c_out: int, stride: int = 1):
+        super().__init__()
+        self.conv1 = Conv(c_in, c_out, kernel=3, stride=stride, padding=1)
+        self.conv2 = Conv(c_out, c_out, kernel=3, stride=1, padding=1, activation=False)
+        
+        # Shortcut connection
+        self.shortcut = nn.Sequential()
+        if stride != 1 or c_in != c_out:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(c_in, c_out, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(c_out)
+            )
+        
+        self.relu = nn.ReLU(inplace=True)
+    
+    def forward(self, x):
+        identity = self.shortcut(x)
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out += identity
+        out = self.relu(out)
+        return out
+
+
+class SEBlock(nn.Module):
+    """Squeeze-and-Excitation (Channel Attention) block."""
+    
+    def __init__(self, channels: int, reduction: int = 16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
 # Layer registry for easy lookup
 LAYER_REGISTRY = {
-    # Standard PyTorch layers
-    'Conv': self._make_conv,
-    'Linear': self._make_linear,
-    'BatchNorm': self._make_batchnorm,
-    'ReLU': lambda args: nn.ReLU(inplace=True),
-    'Sigmoid': lambda args: nn.Sigmoid(),
-    'MaxPool': self._make_maxpool,
-    'AvgPool': lambda args: nn.AvgPool2d(*args),
-    'AdaptiveAvgPool': self._make_adaptive_pool,
-    'Dropout': lambda args: nn.Dropout(args[0] if args else 0.5),
-    'Flatten': self._make_flatten,
-    
-    # Custom modules
-    'Concat': lambda args: Concat(args[0] if args else 1),
-    'ResBlock': self._make_resblock,
+    # YOLO-specific layers
     'Conv': Conv,
     'Bottleneck': Bottleneck,
     'C3': C3,
@@ -225,7 +367,22 @@ LAYER_REGISTRY = {
     'Concat': Concat,
     'Detect': Detect,
     'Upsample': Upsample,
-    'nn.Upsample': Upsample,  # Alias
+    'nn.Upsample': Upsample,
+    
+    # Standard PyTorch layers
+    'Linear': Linear,
+    'BatchNorm': BatchNorm,
+    'ReLU': ReLU,
+    'Sigmoid': Sigmoid,
+    'MaxPool': MaxPool,
+    'AvgPool': AvgPool,
+    'AdaptiveAvgPool': AdaptiveAvgPool,
+    'Dropout': Dropout,
+    'Flatten': Flatten,
+    
+    # Additional blocks
+    'ResBlock': ResidualBlock,
+    'SEBlock': SEBlock,
 }
 
 

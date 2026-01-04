@@ -176,14 +176,61 @@ class ModelParser:
         elif module_name == 'Concat':
             dimension = args[0]
             module = LayerClass(dimension)
-            c_out = sum(c_in) if isinstance(c_in, list) else c_in
-            
+            c_out = sum(c_in) if isinstance(c_in, list) else c_in # This assumes concat across channels. Modify if you want a different implementation
+
         elif module_name == 'Detect':
             nc = args[0]
             anchors = args[1] if len(args) > 1 else self.anchors
             module = LayerClass(nc, anchors, c_in)
             na = len(anchors[0]) // 2
             c_out = na * (nc + 5)
+        
+        # ========== Standard PyTorch Layers ==========
+        
+        elif module_name == 'Linear':
+            c_out = args[0]
+            module = LayerClass(c_in, c_out)
+        
+        elif module_name == 'BatchNorm':
+            c_out = c_in
+            module = LayerClass(c_in)
+        
+        elif module_name in ['ReLU', 'Sigmoid']:
+            c_out = c_in
+            module = LayerClass()
+        
+        elif module_name in ['MaxPool', 'AvgPool']:
+            kernel_size = args[0]
+            stride = args[1] if len(args) > 1 else None
+            padding = args[2] if len(args) > 2 else 0
+            module = LayerClass(kernel_size, stride, padding)
+            c_out = c_in
+        
+        elif module_name == 'AdaptiveAvgPool':
+            output_size = args[0]
+            module = LayerClass(output_size)
+            c_out = c_in
+        
+        elif module_name == 'Dropout':
+            p = args[0] if args else 0.5
+            module = LayerClass(p)
+            c_out = c_in
+        
+        elif module_name == 'Flatten':
+            module = LayerClass()
+            # For flatten, calculate flattened size
+            # This is a placeholder - actual size depends on spatial dims
+            c_out = c_in  # Will be updated if needed
+        
+        elif module_name == 'ResBlock':
+            c_out = args[0]
+            stride = args[1] if len(args) > 1 else 1
+            module = LayerClass(c_in, c_out, stride)
+        
+        elif module_name == 'SEBlock':
+            reduction = args[0] if args else 16
+            module = LayerClass(c_in, reduction)
+            c_out = c_in
             
         else:
             raise NotImplementedError(f"Module '{module_name}' not implemented")
@@ -211,7 +258,7 @@ class Model(nn.Module):
         self.save_indices = set(save_indices)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        layer_outputs = []
+        layer_outputs = {}  
         
         for i, layer in enumerate(self.layers):
             from_idx = layer.from_idx
@@ -219,9 +266,9 @@ class Model(nn.Module):
             # Helper function to resolve index
             def get_output(idx):
                 if idx == -1:
-                    return layer_outputs[i - 1] if i > 0 else x
+                    return x  # Use current x for -1
                 else:
-                    return layer_outputs[idx]
+                    return layer_outputs[idx]  
             
             # Get input(s)
             if isinstance(from_idx, int):
@@ -232,7 +279,9 @@ class Model(nn.Module):
                 input_tensors = [get_output(idx) for idx in from_idx]
                 x = layer(input_tensors)
             
-            layer_outputs.append(x)
+            # Only save if needed for future layers
+            if i in self.save_indices:
+                layer_outputs[i] = x
         
         return x
 
