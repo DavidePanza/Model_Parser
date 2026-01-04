@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include yaml_model_parser *.py
