@@ -40,7 +40,12 @@ venv.bak/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
+# Uncomment the line below if you want to exclude ALL notebooks:
+# *.ipynb
+
+# Or selectively ignore specific notebooks:
+sandbox.ipynb
+scratch*.ipynb
 
 # PyTorch
 *.pth
