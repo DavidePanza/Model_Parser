@@ -1,6 +1,6 @@
 # YAML Model Parser
 
-Build PyTorch neural networks from YAML configuration files. Inspired by YOLOv5.
+This repo implements a framework which allows  building PyTorch neural networks from YAML configuration files. You can avoid creating tedious architectures using nn.Sequential and just define your architectures as a yaml file (check examples in ./models/). Inspired by YOLOv5.
 
 ## Installation
 
