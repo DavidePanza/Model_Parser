@@ -237,6 +237,17 @@ class ReLU(nn.Module):
     
     def forward(self, x):
         return self.relu(x)
+    
+
+class GELU(nn.Module):
+    """GELU activation."""
+
+    def __init__(self):
+        super().__init__()
+        self.gelu = nn.GELU(inplace=True)
+    
+    def forward(self, x):
+        return self.gelu(x)
 
 
 class Sigmoid(nn.Module):
@@ -373,6 +384,7 @@ LAYER_REGISTRY = {
     'Linear': Linear,
     'BatchNorm': BatchNorm,
     'ReLU': ReLU,
+    'GELU': GELU,
     'Sigmoid': Sigmoid,
     'MaxPool': MaxPool,
     'AvgPool': AvgPool,

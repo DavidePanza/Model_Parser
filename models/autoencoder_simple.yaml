@@ -1,0 +1,29 @@
+# Simple Autoencoder
+# Compresses 3x32x32 images to a latent representation and reconstructs them
+model_name: SimpleAutoencoder
+input_shape: [3, 32, 32]
+
+encoder:
+  # Structure: [input_from, num_repeats, layer_type, layer_args]
+  - [-1, 1, Conv, [64, 3, 2, 1]]      # 32x32 -> 16x16
+  - [-1, 1, BatchNorm, []]
+  - [-1, 1, ReLU, []]
+  - [-1, 1, Conv, [128, 3, 2, 1]]     # 16x16 -> 8x8
+  - [-1, 1, BatchNorm, []]
+  - [-1, 1, ReLU, []]
+  - [-1, 1, Conv, [256, 3, 2, 1]]     # 8x8 -> 4x4
+  - [-1, 1, BatchNorm, []]
+  - [-1, 1, ReLU, []]
+
+decoder:
+  - [-1, 1, Upsample, [None, 2, "nearest"]]  # 4x4 -> 8x8
+  - [-1, 1, Conv, [128, 3, 1, 1]]
+  - [-1, 1, BatchNorm, []]
+  - [-1, 1, ReLU, []]
+  - [-1, 1, Upsample, [None, 2, "nearest"]]  # 8x8 -> 16x16
+  - [-1, 1, Conv, [64, 3, 1, 1]]
+  - [-1, 1, BatchNorm, []]
+  - [-1, 1, ReLU, []]
+  - [-1, 1, Upsample, [None, 2, "nearest"]]  # 16x16 -> 32x32
+  - [-1, 1, Conv, [3, 3, 1, 1]]
+  - [-1, 1, Sigmoid, []]                     # Output in [0, 1] range
