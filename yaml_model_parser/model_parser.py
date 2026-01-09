@@ -491,7 +491,7 @@ class SectionManager:
                           if k.startswith(prefix) and k not in META_FIELDS]
                 expanded.extend(sorted(matches))
             elif section in self.config:
-                # Only add if section exists in config
+                # Only add if section exists in config (do not add optional sections)
                 expanded.append(section)
 
         return expanded
@@ -507,9 +507,6 @@ class SectionManager:
         global_idx = 0
 
         for section_name in self.get_section_order():
-            if section_name not in self.config:
-                continue
-
             section_layers = self.config[section_name]
             if not section_layers:
                 continue
@@ -642,7 +639,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         yaml_path = sys.argv[1]
     else:
-        yaml_path = 'model1.yaml'
+        yaml_path = 'autoencoder_basic.yaml'
     
     print(f"Building model from {yaml_path}...")
     model = build_model_from_yaml(yaml_path)
