@@ -453,10 +453,10 @@ LAYER_REGISTRY = {
 
 def get_layer(name: str):
     """
-    Get layer class by name, handling 'nn.' prefix.
+    Get layer class by name.
     
     Args:
-        name: Layer name (e.g., 'Conv', 'C3', 'SPPF', 'nn.Upsample')
+        name: Layer name (e.g., 'Conv', 'C3', 'SPPF')
     
     Returns:
         Layer class
@@ -464,10 +464,7 @@ def get_layer(name: str):
     Raises:
         ValueError: If layer name not found
     """
-    # Strip 'nn.' prefix if present
-    if name.startswith('nn.'):
-        name = name[3:]
-    
+    # Strip 'nn.' prefix if present 
     if name not in LAYER_REGISTRY:
         raise ValueError(f"Layer '{name}' not found. Available layers: {list(LAYER_REGISTRY.keys())}")
     return LAYER_REGISTRY[name]
