@@ -179,7 +179,7 @@ class Detect(nn.Module):
 
 class Upsample(nn.Module):
     """Wrapper for nn.Upsample to handle different argument formats."""
-    
+
     def __init__(self, size=None, scale_factor=None, mode='nearest'):
         """
         Args:
@@ -188,7 +188,7 @@ class Upsample(nn.Module):
             mode: Upsampling mode ('nearest', 'bilinear', etc.)
         """
         super().__init__()
-        
+
         # Only pass non-None parameter to avoid conflict
         if size is not None:
             self.upsample = nn.Upsample(size=size, mode=mode)
@@ -196,9 +196,28 @@ class Upsample(nn.Module):
             self.upsample = nn.Upsample(scale_factor=scale_factor, mode=mode)
         else:
             raise ValueError("Either 'size' or 'scale_factor' must be specified")
-    
+
     def forward(self, x):
         return self.upsample(x)
+
+
+class ConvTranspose2d(nn.Module):
+    """Transposed convolution (deconvolution) for upsampling."""
+
+    def __init__(self, c_in: int, c_out: int, kernel_size: int = 2, stride: int = 2, padding: int = 0):
+        """
+        Args:
+            c_in: Input channels
+            c_out: Output channels
+            kernel_size: Size of the convolving kernel
+            stride: Stride of the convolution (typically 2 for 2x upsampling)
+            padding: Zero-padding added to both sides of the input
+        """
+        super().__init__()
+        self.conv_transpose = nn.ConvTranspose2d(c_in, c_out, kernel_size, stride, padding)
+
+    def forward(self, x):
+        return self.conv_transpose(x)
 
 
 # ============================================================================
@@ -378,8 +397,8 @@ LAYER_REGISTRY = {
     'Concat': Concat,
     'Detect': Detect,
     'Upsample': Upsample,
-    'nn.Upsample': Upsample,
-    
+    'ConvTranspose2d': ConvTranspose2d,
+
     # Standard PyTorch layers
     'Linear': Linear,
     'BatchNorm': BatchNorm,

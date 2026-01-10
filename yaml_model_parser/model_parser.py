@@ -302,13 +302,18 @@ class ModelParser:
             Input channel count (int) or list of counts (for Concat)
         """
         if isinstance(from_idx, int):
-            # For single input, just use channel_list with the index
-            # Python's negative indexing handles -1 correctly as "previous"
-            c_in = channel_list[from_idx]
+            # Convert negative indices relative to current position
+            if from_idx < 0:
+                # -1 at layer i means channel_list[i] (previous layer's output)
+                actual_idx = (current_idx + 1) + from_idx  # +1 because channel_list[0] is input
+            else:
+                # Positive index is absolute layer number
+                actual_idx = from_idx + 1  # +1 because channel_list[0] is input
+            c_in = channel_list[actual_idx]
         else:  # Multiple inputs (for Concat)
             c_in = []
             for idx in from_idx:
-                # For concat, convert negative indices relative to current position
+                # Convert negative indices relative to current position
                 if idx < 0:
                     # -1 at layer i means channel_list[i] (previous layer's output)
                     actual_idx = (current_idx + 1) + idx  # +1 because channel_list[0] is input
@@ -382,11 +387,16 @@ class ModelParser:
             c_out, kernel_size = args
             module = LayerClass(c_in, c_out, kernel_size)
             
-        elif module_name in ['Upsample', 'nn.Upsample']:
+        elif module_name == 'Upsample':
             size, scale_factor, mode = args
             module = LayerClass(size, scale_factor, mode)
             c_out = c_in  # Upsample doesn't change channels
-            
+
+        elif module_name == 'ConvTranspose2d':
+            c_out, kernel_size, stride, *padding = args
+            padding = padding[0] if padding else 0
+            module = LayerClass(c_in, c_out, kernel_size, stride, padding)
+
         elif module_name == 'Concat':
             dimension = args[0]
             module = LayerClass(dimension)
