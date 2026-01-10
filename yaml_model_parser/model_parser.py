@@ -6,7 +6,6 @@ Imports layer definitions from layers.py module.
 import torch
 import torch.nn as nn
 import yaml
-import warnings
 from typing import List, Tuple, Any, Union, Dict, Set
 from .layers import get_layer, LAYER_REGISTRY
 
@@ -46,7 +45,7 @@ ARCHITECTURE_TYPES = {
 }
 
 # Meta fields that are not model sections
-META_FIELDS = {'model_name', 'nc', 'input_shape', 'anchors', 'architecture'}
+META_FIELDS = {'model_name', 'nc', 'input_shape', 'anchors', 'architecture', 'layers_order'}
 
 
 class ModelParser:
@@ -146,21 +145,36 @@ class ModelParser:
 
     def _detect_architecture(self) -> str:
         """
-        Auto-detect architecture type from YAML sections.
+        Detect architecture type from YAML.
+        Uses explicit 'architecture' field or infers from layers_order.
 
         Returns:
             Architecture type string
+
+        Raises:
+            ValueError: If layers_order is missing
         """
-        # Check for explicit declaration
+        # Check for explicit architecture declaration
         if 'architecture' in self.config:
             arch = self.config['architecture']
             if arch not in ARCHITECTURE_TYPES:
-                warnings.warn(f"Unknown architecture type '{arch}', falling back to auto-detection")
-            else:
-                return arch
+                raise ValueError(
+                    f"Unknown architecture type '{arch}'. "
+                    f"Valid types: {list(ARCHITECTURE_TYPES.keys())}"
+                )
+            return arch
 
-        # Auto-detect from sections
-        sections = set(self.config.keys()) - META_FIELDS
+        # Require layers_order
+        if 'layers_order' not in self.config:
+            raise ValueError(
+                "Missing required field 'layers_order' in YAML config.\n"
+                "Add 'layers_order: [section1, section2, ...]' to specify the order of layer sections.\n"
+                "Example: layers_order: [encoder, decoder]"
+            )
+
+        # Infer from layers_order
+        layers_order = self.config['layers_order']
+        sections = set(layers_order)
 
         # Check architecture patterns (order matters - most specific first)
         if 'generator' in sections and 'discriminator' in sections:
@@ -177,46 +191,40 @@ class ModelParser:
 
     def _validate_architecture(self):
         """
-        Validate that config matches architecture requirements.
+        Validate that config has valid layer sections.
 
         Raises:
-            ValueError: If required sections are missing
+            ValueError: If layers_order is missing or references undefined sections
         """
-        arch_spec = ARCHITECTURE_TYPES[self.arch_type]
-        required = set(arch_spec['required_sections'])
-        available_sections = set(self.config.keys()) - META_FIELDS
-
-        # Handle wildcard patterns
-        validated_required = set()
-        for req in required:
-            if '*' in req:
-                # Wildcard pattern - check if at least one matching section exists
-                prefix = req.replace('*', '')
-                matches = [s for s in available_sections if s.startswith(prefix)]
-                if not matches:
-                    raise ValueError(
-                        f"No sections found matching pattern '{req}' for {self.arch_type} architecture"
-                    )
-            else:
-                validated_required.add(req)
-
-        # Check non-wildcard required sections
-        missing = validated_required - available_sections
-        if missing:
+        # Require layers_order
+        if 'layers_order' not in self.config:
             raise ValueError(
-                f"Missing required sections for {self.arch_type} architecture: {missing}\n"
-                f"Available sections: {available_sections}"
+                "Missing required field 'layers_order' in YAML config.\n"
+                "Add 'layers_order: [section1, section2, ...]' to specify the order of layer sections.\n"
+                "Example: layers_order: [encoder, decoder]"
             )
 
-        # Warn about unknown sections
-        all_valid = (set(arch_spec['required_sections']) |
-                    set(arch_spec['optional_sections']))
-        # Remove wildcards for comparison
-        all_valid = {s.replace('*', '') for s in all_valid}
-        unknown = [s for s in available_sections
-                  if not any(s.startswith(v) for v in all_valid)]
-        if unknown:
-            warnings.warn(f"Unknown sections will be ignored: {unknown}")
+        # Get available sections (everything that's a list)
+        available_sections = {k for k, v in self.config.items()
+                            if isinstance(v, list) and k not in META_FIELDS}
+
+        layers_order = self.config['layers_order']
+
+        if not isinstance(layers_order, list):
+            raise ValueError("'layers_order' must be a list of section names")
+
+        # Check all sections in layers_order exist
+        for section_name in layers_order:
+            if section_name not in self.config:
+                raise ValueError(
+                    f"Section '{section_name}' in layers_order not found in config.\n"
+                    f"Available sections: {sorted(available_sections)}"
+                )
+            if not isinstance(self.config[section_name], list):
+                raise ValueError(
+                    f"Section '{section_name}' must be a list of layers, "
+                    f"got {type(self.config[section_name])}"
+                )
 
     def _resolve_references(
         self,
@@ -324,11 +332,148 @@ class ModelParser:
 
         return c_in
 
+    def _evaluate_config_expression(self, val):
+        """
+        Evaluate a value that may contain config variable references or expressions.
+
+        Args:
+            val: Value to evaluate (can be string with variable/expression, or any other type)
+
+        Returns:
+            Evaluated value
+
+        Examples:
+            "base_channel_size" -> 32
+            "base_channel_size*2" -> 64
+            "latent_dim" -> 128
+            "None" -> None
+            "nearest" -> "nearest" (unchanged)
+        """
+        if not isinstance(val, str):
+            return val
+
+        # Define metadata fields to exclude
+        META_FIELDS = {'model_name', 'input_shape', 'architecture', 'layers_order'}
+        config_mapping = {
+            k: v for k, v in self.config.items()
+            if k not in META_FIELDS and not isinstance(v, (list, dict))
+        }
+
+        # Check for None
+        if val in ["None", 'None']:
+            return None
+
+        # Check for direct variable reference
+        if val in config_mapping:
+            return config_mapping[val]
+
+        # Check for arithmetic expressions (e.g., "base_channel_size*2")
+        # Replace variables with their values in the expression
+        expr = val
+        has_variables = False
+        for var_name, var_value in config_mapping.items():
+            if var_name in expr:
+                expr = expr.replace(var_name, str(var_value))
+                has_variables = True
+
+        # Only try to evaluate if we found variables
+        if has_variables:
+            try:
+                # Only allow safe arithmetic operations
+                import ast
+                import operator
+
+                # Safe operators
+                safe_ops = {
+                    ast.Add: operator.add,
+                    ast.Sub: operator.sub,
+                    ast.Mult: operator.mul,
+                    ast.Div: operator.truediv,
+                    ast.FloorDiv: operator.floordiv,
+                    ast.Mod: operator.mod,
+                    ast.Pow: operator.pow,
+                }
+
+                def eval_expr(node):
+                    if isinstance(node, ast.Constant):  # number (Python 3.8+)
+                        return node.value
+                    elif isinstance(node, ast.Num):  # number (deprecated, for older Python)
+                        return node.n
+                    elif isinstance(node, ast.BinOp):  # binary operation
+                        op = safe_ops.get(type(node.op))
+                        if op is None:
+                            raise ValueError(f"Unsafe operation: {type(node.op)}")
+                        return op(eval_expr(node.left), eval_expr(node.right))
+                    elif isinstance(node, ast.UnaryOp):  # unary operation (e.g., -5)
+                        if isinstance(node.op, ast.USub):
+                            return -eval_expr(node.operand)
+                        elif isinstance(node.op, ast.UAdd):
+                            return eval_expr(node.operand)
+                    else:
+                        raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+
+                tree = ast.parse(expr, mode='eval')
+                result = eval_expr(tree.body)
+
+                # Return as int if it's a whole number
+                if isinstance(result, float) and result.is_integer():
+                    return int(result)
+                return result
+
+            except (SyntaxError, ValueError, KeyError):
+                # If evaluation fails, return original value
+                pass
+
+        return val
+
+    def _parse_args(self, args, param_names: List[str], defaults: dict = None):
+        """
+        Parse arguments that can be either positional (list) or named (dict).
+
+        Args:
+            args: Arguments from YAML (list or dict)
+            param_names: Expected parameter names in order
+            defaults: Default values for optional parameters
+
+        Returns:
+            dict: Parsed arguments as {param_name: value}
+
+        Examples:
+            # Positional: [64, 3, 2, 1]
+            # Named: {c_out: 64, kernel: 3, stride: 2, padding: 1}
+            # Mixed: [64, 3, {stride: 2, padding: 1}]
+        """
+        defaults = defaults or {}
+        parsed = {}
+
+        if isinstance(args, dict):
+            # Named arguments
+            parsed = {k: self._evaluate_config_expression(v) for k, v in args.items()}
+        elif isinstance(args, list):
+            # Positional or mixed
+            pos_idx = 0
+            for arg in args:
+                if isinstance(arg, dict):
+                    # Rest are named arguments
+                    parsed.update({k: self._evaluate_config_expression(v) for k, v in arg.items()})
+                else:
+                    # Positional argument
+                    if pos_idx < len(param_names):
+                        parsed[param_names[pos_idx]] = self._evaluate_config_expression(arg)
+                        pos_idx += 1
+
+        # Apply defaults for missing parameters
+        for param, default_val in defaults.items():
+            if param not in parsed:
+                parsed[param] = default_val
+
+        return parsed
+
     def _build_layer(
-        self, 
-        module_name: str, 
-        args: List, 
-        c_in: Union[int, List[int]], 
+        self,
+        module_name: str,
+        args: List,
+        c_in: Union[int, List[int]],
         num_repeats: int
     ) -> Tuple[nn.Module, int]:
         """
@@ -345,28 +490,10 @@ class ModelParser:
             c_out: Output channels
         """
 
-        # Evaluate string references to config variables
-        config_mapping = {
-            'nc': self.nc,
-            'anchors': self.anchors
-        }
-        
-        evaluated_args = []
-        for arg in args:
-            if isinstance(arg, str):
-                # Check if it's a config variable
-                if arg in config_mapping:
-                    evaluated_args.append(config_mapping[arg])
-                # Convert string "None" to actual None
-                elif arg == "None" or arg == 'None':
-                    evaluated_args.append(None)
-                else:
-                    # It's a regular string (like "nearest"), keep it as-is
-                    evaluated_args.append(arg)
-            else:
-                evaluated_args.append(arg)
-
-        args = evaluated_args
+        # Evaluate string references to config variables and expressions
+        # Skip this for dict args (they're handled in _parse_args)
+        if not isinstance(args, dict):
+            args = [self._evaluate_config_expression(arg) for arg in args]
 
         # Get layer class
         LayerClass = get_layer(module_name)
@@ -393,9 +520,21 @@ class ModelParser:
             c_out = c_in  # Upsample doesn't change channels
 
         elif module_name == 'ConvTranspose2d':
-            c_out, kernel_size, stride, *padding = args
-            padding = padding[0] if padding else 0
-            module = LayerClass(c_in, c_out, kernel_size, stride, padding)
+            # Support both positional and named arguments
+            parsed = self._parse_args(
+                args,
+                param_names=['c_out', 'kernel_size', 'stride', 'padding', 'output_padding'],
+                defaults={'padding': 0, 'output_padding': 0}
+            )
+            c_out = parsed['c_out']
+            module = LayerClass(
+                c_in,
+                parsed['c_out'],
+                parsed['kernel_size'],
+                parsed['stride'],
+                parsed['padding'],
+                parsed['output_padding']
+            )
 
         elif module_name == 'Concat':
             dimension = args[0]
@@ -419,7 +558,7 @@ class ModelParser:
             c_out = c_in
             module = LayerClass(c_in)
         
-        elif module_name in ['ReLU', 'Sigmoid']:
+        elif module_name in ['ReLU', 'GELU', 'Sigmoid', 'Tanh']:
             c_out = c_in
             module = LayerClass()
         
@@ -442,10 +581,23 @@ class ModelParser:
         
         elif module_name == 'Flatten':
             module = LayerClass()
-            # For flatten, calculate flattened size
-            # This is a placeholder - actual size depends on spatial dims
-            c_out = c_in  # Will be updated if needed
-        
+            # For flatten, optionally specify the flattened output size
+            # Format: [] (auto, keeps c_in) or [output_features]
+            if args and len(args) > 0:
+                c_out = args[0]  # Explicit flattened feature count
+            else:
+                c_out = c_in  # Fallback (may need manual correction)
+
+        elif module_name == 'Reshape':
+            # Args: shape dimensions (e.g., [-1, 4, 4] or [128, 4, 4])
+            shape = args  # All args are shape dimensions
+            module = LayerClass(*shape)
+            # Calculate output channels from first dimension
+            if len(shape) > 0:
+                c_out = shape[0] if shape[0] != -1 else c_in
+            else:
+                c_out = c_in
+
         elif module_name == 'ResBlock':
             c_out = args[0]
             stride = args[1] if len(args) > 1 else 1
@@ -485,26 +637,19 @@ class SectionManager:
 
     def get_section_order(self) -> List[str]:
         """
-        Get ordered list of sections to process.
+        Get ordered list of sections to process from layers_order.
 
         Returns:
             List of section names in processing order
+
+        Raises:
+            ValueError: If layers_order is missing (should be caught in validation)
         """
-        order = self.arch_spec['section_order']
-        expanded = []
+        # layers_order is required (validated in _validate_architecture)
+        if 'layers_order' not in self.config:
+            raise ValueError("layers_order is required but missing from config")
 
-        for section in order:
-            if '*' in section:
-                # Handle wildcard patterns (e.g., 'head_*')
-                prefix = section.replace('*', '')
-                matches = [k for k in self.config.keys()
-                          if k.startswith(prefix) and k not in META_FIELDS]
-                expanded.extend(sorted(matches))
-            elif section in self.config:
-                # Only add if section exists in config (do not add optional sections)
-                expanded.append(section)
-
-        return expanded
+        return self.config['layers_order']
 
     def get_all_layers(self) -> List[Tuple[List, str, int]]:
         """

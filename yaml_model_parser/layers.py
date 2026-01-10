@@ -204,7 +204,7 @@ class Upsample(nn.Module):
 class ConvTranspose2d(nn.Module):
     """Transposed convolution (deconvolution) for upsampling."""
 
-    def __init__(self, c_in: int, c_out: int, kernel_size: int = 2, stride: int = 2, padding: int = 0):
+    def __init__(self, c_in: int, c_out: int, kernel_size: int = 2, stride: int = 2, padding: int = 0, output_padding: int = 0):
         """
         Args:
             c_in: Input channels
@@ -212,9 +212,10 @@ class ConvTranspose2d(nn.Module):
             kernel_size: Size of the convolving kernel
             stride: Stride of the convolution (typically 2 for 2x upsampling)
             padding: Zero-padding added to both sides of the input
+            output_padding: Additional size added to one side of output shape
         """
         super().__init__()
-        self.conv_transpose = nn.ConvTranspose2d(c_in, c_out, kernel_size, stride, padding)
+        self.conv_transpose = nn.ConvTranspose2d(c_in, c_out, kernel_size, stride, padding, output_padding)
 
     def forward(self, x):
         return self.conv_transpose(x)
@@ -263,11 +264,22 @@ class GELU(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.gelu = nn.GELU(inplace=True)
-    
+        self.gelu = nn.GELU()
+
     def forward(self, x):
         return self.gelu(x)
 
+
+class Tanh(nn.Module):
+    """Tanh activation."""
+
+    def __init__(self):
+        super().__init__()
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):
+        return self.tanh(x)
+    
 
 class Sigmoid(nn.Module):
     """Sigmoid activation."""
@@ -331,13 +343,33 @@ class Dropout(nn.Module):
 
 class Flatten(nn.Module):
     """Flatten layer."""
-    
+
     def __init__(self):
         super().__init__()
         self.flatten = nn.Flatten()
-    
+
     def forward(self, x):
         return self.flatten(x)
+
+
+class Reshape(nn.Module):
+    """Reshape layer to change tensor dimensions."""
+
+    def __init__(self, *shape):
+        """
+        Args:
+            *shape: Target shape. Use -1 for automatic dimension calculation.
+                   Batch dimension is automatically preserved.
+
+        Examples:
+            Reshape(-1, 4, 4)  # Reshape to (batch, channels, 4, 4)
+            Reshape(128, 4, 4)  # Reshape to (batch, 128, 4, 4)
+        """
+        super().__init__()
+        self.shape = shape
+
+    def forward(self, x):
+        return x.reshape(x.shape[0], *self.shape)
 
 
 class ResBlock(nn.Module):
@@ -402,6 +434,7 @@ LAYER_REGISTRY = {
     # Standard PyTorch layers
     'Linear': Linear,
     'BatchNorm': BatchNorm,
+    'Tanh': Tanh,
     'ReLU': ReLU,
     'GELU': GELU,
     'Sigmoid': Sigmoid,
@@ -410,7 +443,8 @@ LAYER_REGISTRY = {
     'AdaptiveAvgPool': AdaptiveAvgPool,
     'Dropout': Dropout,
     'Flatten': Flatten,
-    
+    'Reshape': Reshape,
+
     # Additional blocks
     'ResBlock': ResBlock,
     'SEBlock': SEBlock,
